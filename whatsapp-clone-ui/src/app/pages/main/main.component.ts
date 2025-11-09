@@ -2,7 +2,7 @@ import {AfterViewChecked, Component, ElementRef, OnDestroy, OnInit, ViewChild} f
 import {ChatListComponent} from '../../components/chat-list/chat-list.component';
 import {KeycloakService} from '../../utils/keycloak/keycloak.service';
 import {ChatResponse} from '../../services/models/chat-response';
-import {DatePipe} from '@angular/common';
+import {CommonModule, DatePipe} from '@angular/common';
 import {MessageService} from '../../services/services/message.service';
 import {MessageResponse} from '../../services/models/message-response';
 import * as Stomp from 'stompjs';
@@ -13,6 +13,7 @@ import {Notification} from './models/notification';
 import {ChatService} from '../../services/services/chat.service';
 import {PickerComponent} from '@ctrl/ngx-emoji-mart';
 import {EmojiData} from '@ctrl/ngx-emoji-mart/ngx-emoji';
+import {AiService, SmartReplyResponse, SentimentResponse} from '../../ai/ai.service';
 
 @Component({
   selector: 'app-main',
@@ -20,7 +21,8 @@ import {EmojiData} from '@ctrl/ngx-emoji-mart/ngx-emoji';
     ChatListComponent,
     DatePipe,
     FormsModule,
-    PickerComponent
+    PickerComponent,
+    CommonModule
   ],
   templateUrl: './main.component.html',
   styleUrl: './main.component.scss'
@@ -36,10 +38,17 @@ export class MainComponent implements OnInit, OnDestroy, AfterViewChecked {
   @ViewChild('scrollableDiv') scrollableDiv!: ElementRef<HTMLDivElement>;
   private notificationSubscription: any;
 
+  // AI Features
+  smartReplies: string[] = [];
+  showSmartReplies = false;
+  messagesSentiments = new Map<number, SentimentResponse>();
+  loadingReplies = false;
+
   constructor(
     private chatService: ChatService,
     private messageService: MessageService,
     private keycloakService: KeycloakService,
+    private aiService: AiService
   ) {
   }
 
@@ -94,8 +103,13 @@ export class MainComponent implements OnInit, OnDestroy, AfterViewChecked {
           };
           this.selectedChat.lastMessage = this.messageContent;
           this.chatMessages.push(message);
+
+          // Analyze sentiment for sent message
+          this.analyzeSentiment(message, this.chatMessages.length - 1);
+
           this.messageContent = '';
           this.showEmojis = false;
+          this.showSmartReplies = false;
         }
       });
     }
@@ -158,6 +172,88 @@ export class MainComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.keycloakService.accountManagement();
   }
 
+  // AI Methods
+  loadSmartReplies(messageText: string) {
+    this.loadingReplies = true;
+    this.aiService.getSmartReplies(messageText).subscribe({
+      next: (response: SmartReplyResponse) => {
+        this.smartReplies = response.suggestions;
+        this.showSmartReplies = true;
+        this.loadingReplies = false;
+      },
+      error: (error) => {
+        console.error('Error loading smart replies:', error);
+        this.smartReplies = [];
+        this.showSmartReplies = false;
+        this.loadingReplies = false;
+      }
+    });
+  }
+
+  sendSmartReply(reply: string) {
+    this.messageContent = reply;
+    this.sendMessage();
+    this.showSmartReplies = false;
+  }
+
+  analyzeSentiment(message: MessageResponse, index: number) {
+    if (message.type === 'TEXT' && message.content) {
+      this.aiService.analyzeSentiment(message.content).subscribe({
+        next: (response: SentimentResponse) => {
+          this.messagesSentiments.set(index, response);
+        },
+        error: (error) => {
+          console.error('Error analyzing sentiment:', error);
+        }
+      });
+    }
+  }
+
+  getSentimentEmoji(index: number): string {
+    const sentiment = this.messagesSentiments.get(index);
+    if (!sentiment) return '';
+
+    switch(sentiment.sentiment) {
+      case 'positive': return '😊';
+      case 'negative': return '😔';
+      case 'neutral': return '😐';
+      default: return '';
+    }
+  }
+
+  getSentimentColor(index: number): string {
+    const sentiment = this.messagesSentiments.get(index);
+    if (!sentiment) return '';
+
+    switch(sentiment.sentiment) {
+      case 'positive': return '#4caf50';
+      case 'negative': return '#f44336';
+      case 'neutral': return '#9e9e9e';
+      default: return '';
+    }
+  }
+
+  summarizeChat() {
+    const messageTexts = this.chatMessages
+      .filter(m => m.type === 'TEXT' && m.content)
+      .map(m => m.content || '');
+
+    if (messageTexts.length === 0) {
+      alert('No messages to summarize!');
+      return;
+    }
+
+    this.aiService.summarizeChat(messageTexts).subscribe({
+      next: (response) => {
+        alert('💡 Chat Summary:\n\n' + response.summary);
+      },
+      error: (error) => {
+        console.error('Error summarizing chat:', error);
+        alert('Unable to summarize chat at this time.');
+      }
+    });
+  }
+
   private setMessagesToSeen() {
     this.messageService.setMessageToSeen({
       'chat-id': this.selectedChat.id as string
@@ -182,6 +278,11 @@ export class MainComponent implements OnInit, OnDestroy, AfterViewChecked {
     }).subscribe({
       next: (messages) => {
         this.chatMessages = messages;
+
+        // Analyze sentiment for all messages
+        messages.forEach((msg, index) => {
+          this.analyzeSentiment(msg, index);
+        });
       }
     });
   }
@@ -200,7 +301,7 @@ export class MainComponent implements OnInit, OnDestroy, AfterViewChecked {
 
             },
             () => console.error('Error while connecting to webSocket')
-            );
+          );
         }
       );
     }
@@ -226,6 +327,13 @@ export class MainComponent implements OnInit, OnDestroy, AfterViewChecked {
             this.selectedChat.lastMessage = notification.content;
           }
           this.chatMessages.push(message);
+
+          // AI features for received messages
+          if (notification.type === 'MESSAGE' && notification.content) {
+            this.loadSmartReplies(notification.content);
+            this.analyzeSentiment(message, this.chatMessages.length - 1);
+          }
+
           break;
         case 'SEEN':
           this.chatMessages.forEach(m => m.state = 'SEEN');

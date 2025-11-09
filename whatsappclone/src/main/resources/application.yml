@@ -31,3 +31,7 @@ application:
   file:
     uploads:
       media-output-path: ./uploads
+
+gemini:
+  api:
+    key: AIzaSyBcZlq_uMD5hxqveAdOfGK4GhMQOz9cHHg

@@ -128,3 +128,41 @@ i {
   left: 350px;
   bottom: 50px;
 }
+
+/* AI Features Styles */
+.smart-replies-container {
+  padding: 10px;
+  background: #e8f5e9;
+  border-radius: 8px;
+  border: 1px solid #4caf50;
+}
+
+.smart-replies-label {
+  font-size: 13px;
+  color: #2e7d32;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-weight: 500;
+}
+
+.smart-reply-btn {
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+
+  &:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+  }
+}
+
+.sentiment-emoji {
+  font-size: 16px;
+  display: inline-block;
+  margin-left: 4px;
+  cursor: help;
+}
